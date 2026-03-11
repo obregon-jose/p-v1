@@ -9,7 +9,7 @@ import tkinter as tk
 # ══════════════════════════════════════════════════════
 #  ⚙️  CAMBIA ESTOS DOS VALORES POR LOS TUYOS
 GITHUB_USER = "obregon-jose"
-GITHUB_REPO = "TU_REPOSITORIO"
+GITHUB_REPO = "https://github.com/obregon-jose/preuba-v1"
 # ══════════════════════════════════════════════════════
 
 VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/version.json"
