@@ -1,6 +1,7 @@
 import tkinter as tk
 import threading
 import urllib.request
+import urllib.error
 import json
 import os
 import sys
@@ -19,7 +20,46 @@ VERSION_URL_MASTER = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_R
 EXE_URL = f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest/download/MiApp.exe"
 
 
-# ─── Lógica de actualización ─────────────────────────────────────────────────
+# ─── Descarga con seguimiento de redirecciones ───────────────────────────────
+
+def download_file(url, dest_path, progress_callback=None):
+    MAX_REDIRECTS = 10
+    current_url = url
+
+    for _ in range(MAX_REDIRECTS):
+        req = urllib.request.Request(
+            current_url,
+            headers={"User-Agent": "MiApp-Updater/1.0", "Accept": "*/*"}
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=60)
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307, 308):
+                current_url = e.headers.get("Location", "")
+                if not current_url:
+                    raise RuntimeError("Redirección sin destino")
+                continue
+            raise
+
+        total = int(resp.headers.get("Content-Length", 0))
+        downloaded = 0
+
+        with open(dest_path, "wb") as f:
+            while True:
+                chunk = resp.read(16384)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback and total:
+                    pct = min(int(downloaded * 100 / total), 100)
+                    progress_callback(pct)
+        return
+
+    raise RuntimeError(f"Demasiadas redirecciones: {url}")
+
+
+# ─── Lógica de actualización ──────────────────────────────────────────────────
 
 def get_latest_version():
     for url in [VERSION_URL_MAIN, VERSION_URL_MASTER]:
@@ -49,7 +89,7 @@ def check_for_updates(root, status_label):
 def ask_update(new_version, root, status_label):
     win = tk.Toplevel(root)
     win.title("Nueva versión disponible")
-    win.geometry("380x170")
+    win.geometry("380x175")
     win.resizable(False, False)
     win.grab_set()
     win.transient(root)
@@ -60,11 +100,11 @@ def ask_update(new_version, root, status_label):
     tk.Label(win,
              text=f"Versión actual:  {APP_VERSION}\n"
                   f"Nueva versión:   {new_version}\n\n"
-                  f"Se instalará automáticamente.",
+                  f"Se instalará automáticamente sin pasos extra.",
              font=("Segoe UI", 10), bg="#ffffff", fg="#555", justify="center").pack()
 
     btn_frame = tk.Frame(win, bg="#ffffff")
-    btn_frame.pack(pady=12)
+    btn_frame.pack(pady=14)
 
     tk.Button(btn_frame, text="✅  Actualizar ahora",
               font=("Segoe UI", 10, "bold"),
@@ -79,44 +119,39 @@ def ask_update(new_version, root, status_label):
 
 
 def do_update(root, status_label):
-    status_label.config(text="⬇️  Iniciando descarga...", fg="#2980b9")
+    root.after(0, lambda: status_label.config(
+        text="⬇️  Conectando con servidor...", fg="#2980b9"))
 
     def download():
         try:
             exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
             tmp_path = exe_path + ".new"
+            bat_path = exe_path + "_update.bat"
 
-            req = urllib.request.Request(EXE_URL, headers={"User-Agent": "MiApp-Updater/1.0"})
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                total = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                with open(tmp_path, "wb") as f:
-                    while True:
-                        buf = resp.read(8192)
-                        if not buf:
-                            break
-                        f.write(buf)
-                        downloaded += len(buf)
-                        if total:
-                            pct = min(int(downloaded * 100 / total), 100)
-                            root.after(0, lambda p=pct: status_label.config(
-                                text=f"⬇️  Descargando... {p}%", fg="#2980b9"))
+            def on_progress(pct):
+                root.after(0, lambda p=pct: status_label.config(
+                    text=f"⬇️  Descargando... {p}%", fg="#2980b9"))
+
+            download_file(EXE_URL, tmp_path, progress_callback=on_progress)
 
             root.after(0, lambda: status_label.config(
-                text="⚙️  Instalando...", fg="#8e44ad"))
+                text="⚙️  Instalando actualización...", fg="#8e44ad"))
 
-            bat_path = exe_path + "_update.bat"
             with open(bat_path, "w") as f:
                 f.write(
-                    f"@echo off\n"
-                    f"timeout /t 2 /nobreak >nul\n"
+                    "@echo off\n"
+                    "timeout /t 2 /nobreak >nul\n"
                     f"move /y \"{tmp_path}\" \"{exe_path}\"\n"
                     f"start \"\" \"{exe_path}\"\n"
-                    f"del \"%~f0\"\n"
+                    "del \"%~f0\"\n"
                 )
-            subprocess.Popen(f'cmd /c "{bat_path}"', shell=True,
-                             creationflags=subprocess.CREATE_NO_WINDOW)
-            root.after(800, root.destroy)
+
+            subprocess.Popen(
+                f'cmd /c "{bat_path}"',
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            root.after(1000, root.destroy)
 
         except Exception as e:
             root.after(0, lambda: status_label.config(
@@ -154,7 +189,6 @@ def main():
     root.resizable(False, False)
     root.configure(bg="#1e1e2e")
 
-    # Encabezado
     header = tk.Frame(root, bg="#2a2a3e", pady=8)
     header.pack(fill="x")
     tk.Label(header, text="🖥️ Mi Aplicación",
@@ -162,7 +196,6 @@ def main():
     tk.Label(header, text=f"Versión: {APP_VERSION}",
              font=("Segoe UI", 9), bg="#2a2a3e", fg="#aaa").pack()
 
-    # Display
     display_var = tk.StringVar(value="0")
     tk.Entry(root, textvariable=display_var,
              font=("Segoe UI", 22, "bold"), justify="right",
@@ -171,7 +204,6 @@ def main():
              readonlybackground="#12121f"
              ).pack(fill="x", padx=10, pady=10, ipady=12)
 
-    # Botones
     BUTTONS = [
         ["C",  "⌫", "%",  "/"],
         ["7",  "8",  "9",  "*"],
@@ -204,7 +236,6 @@ def main():
                       command=lambda k=key: press(k, display_var)
                       ).pack(side="left", padx=3)
 
-    # Status
     status = tk.Label(root, text="🔍 Buscando actualizaciones...",
                       font=("Segoe UI", 8), fg="#666", bg="#1e1e2e")
     status.pack(pady=4)
