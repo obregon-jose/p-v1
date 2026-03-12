@@ -9,8 +9,8 @@ import subprocess
 
 # ══════════════════════════════════════════════════════
 #  ⚙️  CAMBIA ESTOS DOS VALORES POR LOS TUYOS
-GITHUB_USER = "TU_USUARIO"
-GITHUB_REPO = "TU_REPOSITORIO"
+GITHUB_USER = "obregon-jose"
+GITHUB_REPO = "p-v1"
 # ══════════════════════════════════════════════════════
 
 APP_VERSION = "1.0.0"
